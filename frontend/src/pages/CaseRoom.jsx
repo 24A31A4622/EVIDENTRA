@@ -9,7 +9,9 @@ import {
 import { doc, getDoc } from "firebase/firestore";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   ClipboardList,
   Eye,
   FileText,
@@ -17,6 +19,8 @@ import {
   History,
   LoaderCircle,
   Plus,
+  SearchCheck,
+  ShieldAlert,
   ShieldCheck,
   Upload,
   Users,
@@ -24,7 +28,12 @@ import {
 } from "lucide-react";
 import { auth, db } from "../firebaseConfig";
 import AppShell from "../components/AppShell";
-import { uploadEvidence } from "../services/evidenceService";
+import {
+  getAuditLogsForCase,
+  simulateEvidenceTamper,
+  uploadEvidence,
+  verifyEvidenceIntegrity,
+} from "../services/evidenceService";
 
 function formatFileSize(bytes) {
   if (!bytes) return "0 B";
@@ -51,20 +60,36 @@ function shortHash(hash) {
   return `${hash.slice(0, 12)}...${hash.slice(-10)}`;
 }
 
+function getActionLabel(action) {
+  const labels = {
+    UPLOAD: "Evidence uploaded",
+    INTEGRITY_CHECK: "Integrity verification",
+    FILE_MODIFIED_DEMO: "Demo tamper simulation",
+  };
+
+  return labels[action] || action?.replaceAll("_", " ") || "System action";
+}
+
 export default function CaseRoom() {
   const { caseId } = useParams();
 
   const [profile, setProfile] = useState(null);
   const [caseData, setCaseData] = useState(null);
   const [evidenceItems, setEvidenceItems] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+
   const [activeTab, setActiveTab] = useState("Overview");
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [processingEvidenceId, setProcessingEvidenceId] = useState("");
 
   const [title, setTitle] = useState("");
   const [evidenceType, setEvidenceType] = useState("Image");
@@ -73,10 +98,17 @@ export default function CaseRoom() {
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
-  const canUpload = [
-    "Investigator",
-    "Forensic Officer",
-  ].includes(profile?.role);
+  const canUpload = ["Investigator", "Forensic Officer"].includes(
+    profile?.role
+  );
+
+  const canVerify = ["Investigator", "Forensic Officer", "Administrator"].includes(
+    profile?.role
+  );
+
+  const canSimulateTamper = ["Investigator", "Administrator"].includes(
+    profile?.role
+  );
 
   async function loadEvidence() {
     setEvidenceLoading(true);
@@ -97,7 +129,7 @@ export default function CaseRoom() {
         }))
       );
     } catch (error) {
-      console.error("Could not load evidence:", error);
+      console.warn("Ordered evidence query failed, using fallback:", error);
 
       try {
         const fallbackQuery = query(
@@ -107,17 +139,36 @@ export default function CaseRoom() {
 
         const fallbackSnapshot = await getDocs(fallbackQuery);
 
-        setEvidenceItems(
-          fallbackSnapshot.docs.map((evidenceDocument) => ({
-            id: evidenceDocument.id,
-            ...evidenceDocument.data(),
-          }))
-        );
+        const items = fallbackSnapshot.docs.map((evidenceDocument) => ({
+          id: evidenceDocument.id,
+          ...evidenceDocument.data(),
+        }));
+
+        items.sort((firstItem, secondItem) => {
+          const firstTime = firstItem.uploadedAt?.toMillis?.() || 0;
+          const secondTime = secondItem.uploadedAt?.toMillis?.() || 0;
+          return secondTime - firstTime;
+        });
+
+        setEvidenceItems(items);
       } catch (fallbackError) {
-        console.error("Evidence fallback query failed:", fallbackError);
+        console.error("Could not load evidence:", fallbackError);
       }
     } finally {
       setEvidenceLoading(false);
+    }
+  }
+
+  async function loadAuditLogs() {
+    setAuditLoading(true);
+
+    try {
+      const logs = await getAuditLogsForCase(caseId);
+      setAuditLogs(logs);
+    } catch (error) {
+      console.error("Could not load audit logs:", error);
+    } finally {
+      setAuditLoading(false);
     }
   }
 
@@ -142,12 +193,11 @@ export default function CaseRoom() {
           return;
         }
 
-        const loadedProfile = {
+        setProfile({
           uid: currentUser.uid,
           ...profileSnapshot.data(),
-        };
+        });
 
-        setProfile(loadedProfile);
         setCaseData(caseSnapshot.data());
       } catch (error) {
         console.error("Could not load Case Room:", error);
@@ -160,8 +210,14 @@ export default function CaseRoom() {
   }, [caseId, navigate]);
 
   useEffect(() => {
-    if (profile && (activeTab === "Evidence" || activeTab === "Overview")) {
+    if (profile) {
       loadEvidence();
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    if (profile && activeTab === "Audit Trail") {
+      loadAuditLogs();
     }
   }, [profile, activeTab]);
 
@@ -203,13 +259,13 @@ export default function CaseRoom() {
         profile,
       });
 
+      closeUploadModal();
       setUploadSuccess(
-        `Evidence registered successfully. SHA-256: ${shortHash(
+        `Evidence registered. SHA-256 fingerprint: ${shortHash(
           result.sha256Hash
         )}`
       );
 
-      closeUploadModal();
       await loadEvidence();
     } catch (error) {
       console.error("Evidence upload failed:", error);
@@ -221,6 +277,56 @@ export default function CaseRoom() {
     }
   }
 
+  async function handleVerifyIntegrity(evidence) {
+    setActionMessage("");
+    setProcessingEvidenceId(evidence.id);
+
+    try {
+      const result = await verifyEvidenceIntegrity({ evidence, profile });
+
+      setActionMessage(
+        result.isVerified
+          ? `Integrity verified: ${evidence.originalFileName} matches its registered SHA-256 fingerprint.`
+          : `INTEGRITY MISMATCH: ${evidence.originalFileName} differs from its registered SHA-256 fingerprint.`
+      );
+
+      await loadEvidence();
+      await loadAuditLogs();
+    } catch (error) {
+      console.error("Integrity verification failed:", error);
+      setActionMessage("Integrity verification could not be completed.");
+    } finally {
+      setProcessingEvidenceId("");
+    }
+  }
+
+  async function handleTamperSimulation(evidence) {
+    const accepted = window.confirm(
+      `Demo only: simulate tampering for "${evidence.originalFileName}"? This will change the current fingerprint and trigger an integrity mismatch.`
+    );
+
+    if (!accepted) return;
+
+    setActionMessage("");
+    setProcessingEvidenceId(evidence.id);
+
+    try {
+      await simulateEvidenceTamper({ evidence, profile });
+
+      setActionMessage(
+        `DEMO TAMPER SIMULATION COMPLETE: The current fingerprint for ${evidence.originalFileName} was changed. Run Verify Integrity to see the mismatch.`
+      );
+
+      await loadEvidence();
+      await loadAuditLogs();
+    } catch (error) {
+      console.error("Tamper simulation failed:", error);
+      setActionMessage("Tamper simulation could not be completed.");
+    } finally {
+      setProcessingEvidenceId("");
+    }
+  }
+
   if (loading) {
     return <main className="loading-screen">Opening secure Case Room...</main>;
   }
@@ -228,6 +334,14 @@ export default function CaseRoom() {
   if (!profile || !caseData) {
     return null;
   }
+
+  const verifiedCount = evidenceItems.filter(
+    (item) => item.integrityStatus === "Verified"
+  ).length;
+
+  const mismatchCount = evidenceItems.filter(
+    (item) => item.integrityStatus === "Mismatch"
+  ).length;
 
   const tabs = [
     { name: "Overview", icon: ClipboardList },
@@ -287,6 +401,39 @@ export default function CaseRoom() {
           </div>
         )}
 
+        {actionMessage && (
+          <div
+            className={`integrity-message ${
+              actionMessage.includes("MISMATCH") ||
+              actionMessage.includes("TAMPER")
+                ? "danger"
+                : "safe"
+            }`}
+          >
+            {actionMessage.includes("MISMATCH") ||
+            actionMessage.includes("TAMPER") ? (
+              <ShieldAlert size={21} />
+            ) : (
+              <CheckCircle2 size={21} />
+            )}
+
+            <div>
+              <strong>
+                {actionMessage.includes("MISMATCH")
+                  ? "Integrity alert"
+                  : actionMessage.includes("TAMPER")
+                  ? "Demo tamper event"
+                  : "Integrity verification"}
+              </strong>
+              <p>{actionMessage}</p>
+            </div>
+
+            <button onClick={() => setActionMessage("")}>
+              <X size={17} />
+            </button>
+          </div>
+        )}
+
         {activeTab === "Overview" && (
           <section className="case-overview-grid">
             <article className="content-card case-description-card">
@@ -319,7 +466,6 @@ export default function CaseRoom() {
                   <span className="card-label">ASSIGNED PERSONNEL</span>
                   <h3>Case access</h3>
                 </div>
-
                 <Users size={20} />
               </div>
 
@@ -367,8 +513,8 @@ export default function CaseRoom() {
                 <span className="card-label">EVIDENCE REGISTER</span>
                 <h3>Case evidence</h3>
                 <p>
-                  Every evidence item receives a SHA-256 fingerprint and a
-                  tamper-evident ledger registration record.
+                  Every item has a registered SHA-256 fingerprint, version
+                  metadata, integrity status, and audit record.
                 </p>
               </div>
 
@@ -416,68 +562,99 @@ export default function CaseRoom() {
                       <th>Version</th>
                       <th>Integrity</th>
                       <th>SHA-256 fingerprint</th>
-                      <th>Uploaded</th>
-                      <th />
+                      <th>Actions</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {evidenceItems.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <div className="evidence-name">
-                            <div className="evidence-file-icon">
-                              <FileText size={18} />
+                    {evidenceItems.map((item) => {
+                      const isProcessing = processingEvidenceId === item.id;
+
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <div className="evidence-name">
+                              <div className="evidence-file-icon">
+                                <FileText size={18} />
+                              </div>
+                              <div>
+                                <strong>{item.title}</strong>
+                                <span>
+                                  {item.evidenceType} · {item.originalFileName}{" "}
+                                  · {formatFileSize(item.fileSize)}
+                                </span>
+                              </div>
                             </div>
-                            <div>
-                              <strong>{item.title}</strong>
-                              <span>
-                                {item.evidenceType} · {item.originalFileName} ·{" "}
-                                {formatFileSize(item.fileSize)}
-                              </span>
+                          </td>
+
+                          <td>v{item.version || 1}</td>
+
+                          <td>
+                            <span
+                              className={`integrity-badge ${
+                                item.integrityStatus === "Verified"
+                                  ? "verified"
+                                  : "mismatch"
+                              }`}
+                            >
+                              {item.integrityStatus === "Verified" ? (
+                                <ShieldCheck size={14} />
+                              ) : (
+                                <ShieldAlert size={14} />
+                              )}
+                              {item.integrityStatus || "Not checked"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <code className="hash-text">
+                              {shortHash(item.sha256Hash)}
+                            </code>
+                          </td>
+
+                          <td>
+                            <div className="evidence-actions">
+                              <button
+                                className="table-action view"
+                                title="View evidence details"
+                                onClick={() => setSelectedEvidence(item)}
+                              >
+                                <Eye size={15} />
+                                Details
+                              </button>
+
+                              {canVerify && (
+                                <button
+                                  className="table-action verify"
+                                  disabled={isProcessing}
+                                  onClick={() => handleVerifyIntegrity(item)}
+                                >
+                                  {isProcessing ? (
+                                    <LoaderCircle className="spin-icon" size={15} />
+                                  ) : (
+                                    <SearchCheck size={15} />
+                                  )}
+                                  Verify
+                                </button>
+                              )}
+
+                              {canSimulateTamper && (
+                                <button
+                                  className="table-action tamper"
+                                  disabled={isProcessing || item.tamperSimulated}
+                                  onClick={() => handleTamperSimulation(item)}
+                                >
+                                  <AlertTriangle size={15} />
+                                  {item.tamperSimulated
+                                    ? "Tampered"
+                                    : "Demo Tamper"}
+                                </button>
+                              )}
                             </div>
-                          </div>
-                        </td>
-
-                        <td>v{item.version || 1}</td>
-
-                        <td>
-                          <span
-                            className={`integrity-badge ${
-                              item.integrityStatus === "Verified"
-                                ? "verified"
-                                : "mismatch"
-                            }`}
-                          >
-                            <ShieldCheck size={14} />
-                            {item.integrityStatus || "Not checked"}
-                          </span>
-                        </td>
-
-                        <td>
-                          <code className="hash-text">
-                            {shortHash(item.sha256Hash)}
-                          </code>
-                        </td>
-
-                        <td>
-                          <span className="uploaded-info">
-                            {item.uploadedByName || item.uploadedBy}
-                            <small>{formatDate(item.uploadedAt)}</small>
-                          </span>
-                        </td>
-
-                        <td>
-                          <button
-                            className="icon-action-button"
-                            title="View evidence registration"
-                            onClick={() => setSelectedEvidence(item)}
-                          >
-                            <Eye size={17} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -485,13 +662,150 @@ export default function CaseRoom() {
           </section>
         )}
 
-        {activeTab !== "Overview" && activeTab !== "Evidence" && (
+        {activeTab === "Audit Trail" && (
+          <section>
+            <div className="module-header">
+              <div>
+                <span className="card-label">CHAIN OF CUSTODY</span>
+                <h3>Case audit trail</h3>
+                <p>
+                  A chronological record of who performed what action, when,
+                  and on which case evidence.
+                </p>
+              </div>
+
+              <button
+                className="secondary-button compact-button"
+                onClick={loadAuditLogs}
+              >
+                <History size={16} />
+                Refresh log
+              </button>
+            </div>
+
+            {auditLoading ? (
+              <div className="evidence-loading">
+                <LoaderCircle size={23} />
+                Loading audit records...
+              </div>
+            ) : auditLogs.length === 0 ? (
+              <div className="empty-state">
+                <History size={35} />
+                <h3>No audit events yet</h3>
+                <p>
+                  Evidence uploads, integrity checks, and demo tamper events
+                  will be recorded here.
+                </p>
+              </div>
+            ) : (
+              <div className="audit-list">
+                {auditLogs.map((log) => (
+                  <article className="audit-item" key={log.id}>
+                    <div
+                      className={`audit-icon ${
+                        log.action === "FILE_MODIFIED_DEMO"
+                          ? "danger"
+                          : log.action === "INTEGRITY_CHECK"
+                          ? "verify"
+                          : "upload"
+                      }`}
+                    >
+                      {log.action === "FILE_MODIFIED_DEMO" ? (
+                        <ShieldAlert size={18} />
+                      ) : log.action === "INTEGRITY_CHECK" ? (
+                        <SearchCheck size={18} />
+                      ) : (
+                        <Upload size={18} />
+                      )}
+                    </div>
+
+                    <div className="audit-body">
+                      <div className="audit-title-row">
+                        <strong>{getActionLabel(log.action)}</strong>
+                        <span>{formatDate(log.timestamp)}</span>
+                      </div>
+
+                      <p>{log.details}</p>
+
+                      <small>
+                        Performed by {log.userName || log.userId} ·{" "}
+                        {log.userRole}
+                      </small>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === "Integrity Report" && (
+          <section>
+            <div className="module-header">
+              <div>
+                <span className="card-label">INTEGRITY MONITOR</span>
+                <h3>Evidence integrity report</h3>
+                <p>
+                  Compare registered evidence fingerprints with their current
+                  fingerprints to identify possible tampering.
+                </p>
+              </div>
+            </div>
+
+            <div className="integrity-summary-grid">
+              <article className="integrity-summary-card total">
+                <span>Total evidence</span>
+                <strong>{evidenceItems.length}</strong>
+                <small>Registered in this case</small>
+              </article>
+
+              <article className="integrity-summary-card safe">
+                <span>Verified</span>
+                <strong>{verifiedCount}</strong>
+                <small>Fingerprints match</small>
+              </article>
+
+              <article className="integrity-summary-card danger">
+                <span>Mismatch</span>
+                <strong>{mismatchCount}</strong>
+                <small>Requires review</small>
+              </article>
+            </div>
+
+            {mismatchCount > 0 ? (
+              <div className="integrity-alert-card">
+                <ShieldAlert size={28} />
+                <div>
+                  <strong>Integrity mismatch requires attention</strong>
+                  <p>
+                    One or more evidence records have a current SHA-256 hash
+                    that differs from the original registered fingerprint.
+                    Review the Evidence tab and Audit Trail immediately.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="integrity-safe-card">
+                <ShieldCheck size={28} />
+                <div>
+                  <strong>All registered evidence is currently verified</strong>
+                  <p>
+                    Current evidence fingerprints match their original
+                    registered SHA-256 fingerprints.
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === "Documents" && (
           <section className="content-card empty-tab">
-            <span className="card-label">{activeTab.toUpperCase()}</span>
-            <h3>{activeTab} module</h3>
+            <span className="card-label">DOCUMENTS</span>
+            <h3>Case documents module</h3>
             <p>
-              This module will be implemented next. It is connected to case{" "}
-              {caseData.caseId}.
+              FIRs, forensic reports, charge sheets, and legal documents will
+              use the same SHA-256 and audit workflow in the next phase.
             </p>
           </section>
         )}
@@ -542,7 +856,9 @@ export default function CaseRoom() {
                 ref={fileInputRef}
                 type="file"
                 className="hidden-file-input"
-                onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+                onChange={(event) =>
+                  setSelectedFile(event.target.files?.[0] || null)
+                }
               />
 
               <button
@@ -559,16 +875,16 @@ export default function CaseRoom() {
                 <span>
                   {selectedFile
                     ? `${formatFileSize(selectedFile.size)} selected`
-                    : "The original file is hashed locally before registration."}
+                    : "The file is hashed locally before evidence registration."}
                 </span>
               </button>
 
               <div className="hash-explanation">
                 <Fingerprint size={19} />
                 <p>
-                  EVIDENTRA will calculate a real SHA-256 digital fingerprint,
-                  save evidence metadata, create an audit entry, and register a
-                  prototype ledger record.
+                  EVIDENTRA calculates a SHA-256 fingerprint, saves evidence
+                  metadata, creates an audit record, and writes a prototype
+                  tamper-evident ledger entry.
                 </p>
               </div>
 
@@ -592,7 +908,7 @@ export default function CaseRoom() {
                   {uploading ? (
                     <>
                       <LoaderCircle className="spin-icon" size={17} />
-                      Registering evidence...
+                      Registering...
                     </>
                   ) : (
                     <>
@@ -637,14 +953,36 @@ export default function CaseRoom() {
 
               <div>
                 <span>INTEGRITY STATUS</span>
-                <strong className="verified-text">
-                  ✓ {selectedEvidence.integrityStatus}
+                <strong
+                  className={
+                    selectedEvidence.integrityStatus === "Mismatch"
+                      ? "mismatch-text"
+                      : "verified-text"
+                  }
+                >
+                  {selectedEvidence.integrityStatus === "Mismatch"
+                    ? "⚠ "
+                    : "✓ "}
+                  {selectedEvidence.integrityStatus}
                 </strong>
               </div>
 
               <div>
-                <span>SHA-256 FINGERPRINT</span>
+                <span>REGISTERED SHA-256 FINGERPRINT</span>
                 <code>{selectedEvidence.sha256Hash}</code>
+              </div>
+
+              <div>
+                <span>CURRENT SHA-256 FINGERPRINT</span>
+                <code
+                  className={
+                    selectedEvidence.integrityStatus === "Mismatch"
+                      ? "mismatch-hash"
+                      : ""
+                  }
+                >
+                  {selectedEvidence.currentSha256Hash}
+                </code>
               </div>
 
               <div>
@@ -657,6 +995,13 @@ export default function CaseRoom() {
                 <strong>
                   {selectedEvidence.uploadedByName} (
                   {selectedEvidence.uploadedByRole})
+                </strong>
+              </div>
+
+              <div>
+                <span>LAST VERIFIED</span>
+                <strong>
+                  {selectedEvidence.lastVerifiedBy || "Not verified yet"}
                 </strong>
               </div>
             </div>

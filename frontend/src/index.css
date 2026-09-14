@@ -29,7 +29,9 @@ button {
   cursor: pointer;
 }
 
-/* ---------- Shared ---------- */
+/* =========================
+   SHARED COMPONENTS
+========================= */
 
 .brand-mark {
   display: grid;
@@ -94,15 +96,26 @@ button {
   filter: brightness(1.12);
 }
 
-.primary-button:disabled {
+.primary-button:disabled,
+.secondary-button:disabled,
+.table-action:disabled {
   cursor: wait;
-  opacity: 0.7;
+  opacity: 0.55;
 }
 
 .secondary-button {
   color: #bed4dd;
   border: 1px solid #315d72;
   background: transparent;
+}
+
+.secondary-button:hover {
+  color: #effdff;
+  border-color: #609bb0;
+}
+
+.compact-button {
+  white-space: nowrap;
 }
 
 .form-error {
@@ -130,7 +143,9 @@ button {
   background: #10283a;
 }
 
-/* ---------- Login ---------- */
+/* =========================
+   LOGIN PAGE
+========================= */
 
 .auth-page {
   display: grid;
@@ -285,7 +300,9 @@ button {
   margin: 0;
 }
 
-/* ---------- MFA ---------- */
+/* =========================
+   MFA PAGE
+========================= */
 
 .mfa-page {
   display: grid;
@@ -353,7 +370,9 @@ button {
   font-size: 12px;
 }
 
-/* ---------- App Shell ---------- */
+/* =========================
+   APP SHELL
+========================= */
 
 .app-shell {
   display: flex;
@@ -508,6 +527,11 @@ button {
   font-weight: 700;
 }
 
+.logout-button:hover {
+  color: #f0fbff;
+  border-color: #43809b;
+}
+
 .app-content {
   min-width: 0;
   flex: 1;
@@ -522,7 +546,9 @@ button {
   padding: 46px clamp(24px, 4vw, 64px);
 }
 
-/* ---------- Dashboard / Case Room ---------- */
+/* =========================
+   DASHBOARD AND CASE ROOM
+========================= */
 
 .dashboard-header,
 .case-header,
@@ -550,16 +576,13 @@ button {
   line-height: 1.65;
 }
 
-.compact-button {
-  white-space: nowrap;
-}
-
 .security-banner,
-.success-banner {
+.success-banner,
+.integrity-message {
   display: flex;
   align-items: flex-start;
   gap: 13px;
-  margin: 32px 0;
+  margin: 26px 0;
   padding: 15px 17px;
   border-radius: 11px;
 }
@@ -576,34 +599,70 @@ button {
   background: rgba(19, 115, 74, 0.2);
 }
 
+.integrity-message.safe {
+  color: #b6e8c8;
+  border: 1px solid rgba(73, 204, 143, 0.28);
+  background: rgba(19, 115, 74, 0.2);
+}
+
+.integrity-message.danger {
+  color: #ffd0cc;
+  border: 1px solid rgba(235, 97, 88, 0.44);
+  background: rgba(139, 39, 36, 0.35);
+}
+
 .security-banner svg {
+  flex: 0 0 auto;
   color: #75ebbc;
 }
 
-.success-banner > svg {
+.success-banner > svg,
+.integrity-message.safe > svg {
+  flex: 0 0 auto;
   color: #72e6ac;
 }
 
+.integrity-message.danger > svg {
+  flex: 0 0 auto;
+  color: #ff9c94;
+}
+
 .security-banner strong,
-.success-banner strong {
+.success-banner strong,
+.integrity-message strong {
   display: block;
   color: #e2ffff;
   font-size: 13px;
 }
 
+.integrity-message.danger strong {
+  color: #fff0ee;
+}
+
 .security-banner p,
-.success-banner p {
+.success-banner p,
+.integrity-message p {
   margin: 3px 0 0;
   color: #91bdc3;
   font-size: 11px;
+  line-height: 1.55;
 }
 
-.success-banner button {
+.integrity-message.danger p {
+  color: #ffc4bf;
+}
+
+.success-banner button,
+.integrity-message button {
   margin-left: auto;
   padding: 0;
   color: #a5e5c0;
   border: 0;
   background: transparent;
+}
+
+.integrity-message.danger button {
+  color: #ffb7b0;
 }
 
 .dashboard-section-heading {
@@ -675,7 +734,8 @@ button {
 .content-card,
 .empty-state,
 .evidence-table-wrapper,
-.evidence-loading {
+.evidence-loading,
+.audit-list {
   border: 1px solid #20445b;
   border-radius: 14px;
   background: #102538;
@@ -751,8 +811,8 @@ button {
   color: #f0c878;
 }
 
-.case-card-footer button,
-.icon-action-button {
+.case-card-footer button {
+  padding: 0;
   color: #86ecf1;
   border: 0;
   background: transparent;
@@ -922,7 +982,9 @@ button {
   line-height: 1.65;
 }
 
-/* ---------- Evidence ---------- */
+/* =========================
+   EVIDENCE MODULE
+========================= */
 
 .module-header {
   margin-bottom: 25px;
@@ -934,7 +996,7 @@ button {
 
 .evidence-table {
   width: 100%;
-  min-width: 920px;
+  min-width: 960px;
   border-collapse: collapse;
 }
 
@@ -955,10 +1017,15 @@ button {
   color: #b8d3dc;
   border-bottom: 1px solid rgba(32, 68, 91, 0.72);
   font-size: 12px;
+  vertical-align: middle;
 }
 
 .evidence-table tr:last-child td {
   border-bottom: 0;
+}
+
+.evidence-table tbody tr:hover {
+  background: rgba(27, 68, 88, 0.25);
 }
 
 .evidence-name {
@@ -1004,17 +1071,237 @@ button {
   font-size: 10px;
 }
 
-.icon-action-button {
-  display: grid;
-  width: 31px;
-  height: 31px;
-  place-items: center;
-  border: 1px solid #285871;
+.evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 255px;
+}
+
+.table-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 8px;
   border-radius: 7px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.table-action.view {
+  color: #a4eaf0;
+  border: 1px solid #285871;
   background: #0e2d43;
 }
 
-/* ---------- Modals ---------- */
+.table-action.verify {
+  color: #86efba;
+  border: 1px solid rgba(74, 190, 126, 0.32);
+  background: rgba(22, 111, 69, 0.22);
+}
+
+.table-action.tamper {
+  color: #ffc0ba;
+  border: 1px solid rgba(214, 89, 81, 0.38);
+  background: rgba(139, 39, 36, 0.25);
+}
+
+.table-action.tamper:disabled {
+  color: #9f7774;
+  border-color: rgba(134, 79, 75, 0.35);
+  background: rgba(92, 49, 47, 0.2);
+}
+
+/* =========================
+   AUDIT TRAIL
+========================= */
+
+.audit-list {
+  overflow: hidden;
+}
+
+.audit-item {
+  display: flex;
+  gap: 14px;
+  padding: 18px;
+  border-bottom: 1px solid #20445b;
+}
+
+.audit-item:last-child {
+  border-bottom: 0;
+}
+
+.audit-icon {
+  display: grid;
+  width: 37px;
+  height: 37px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+}
+
+.audit-icon.upload {
+  color: #86e7ef;
+  background: rgba(13, 103, 119, 0.34);
+}
+
+.audit-icon.verify {
+  color: #88eab6;
+  background: rgba(22, 115, 72, 0.28);
+}
+
+.audit-icon.danger {
+  color: #ffaaa2;
+  background: rgba(142, 42, 37, 0.34);
+}
+
+.audit-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.audit-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.audit-title-row strong {
+  color: #e4f8fc;
+  font-size: 13px;
+}
+
+.audit-title-row span {
+  flex: 0 0 auto;
+  color: #759cab;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+}
+
+.audit-body p {
+  margin: 6px 0;
+  color: #a0bdc7;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.audit-body small {
+  color: #7898a6;
+  font-size: 10px;
+}
+
+/* =========================
+   INTEGRITY REPORT
+========================= */
+
+.integrity-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.integrity-summary-card {
+  display: grid;
+  gap: 7px;
+  padding: 21px;
+  border: 1px solid #294f64;
+  border-radius: 13px;
+  background: #10283a;
+}
+
+.integrity-summary-card span {
+  color: #8dacb8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.integrity-summary-card strong {
+  color: #effdff;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.integrity-summary-card small {
+  color: #7696a4;
+  font-size: 10px;
+}
+
+.integrity-summary-card.safe {
+  border-color: rgba(68, 178, 119, 0.4);
+  background: rgba(22, 95, 64, 0.24);
+}
+
+.integrity-summary-card.safe strong {
+  color: #85efb7;
+}
+
+.integrity-summary-card.danger {
+  border-color: rgba(211, 89, 82, 0.45);
+  background: rgba(123, 38, 35, 0.25);
+}
+
+.integrity-summary-card.danger strong {
+  color: #ffaaa2;
+}
+
+.integrity-alert-card,
+.integrity-safe-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 21px;
+  border-radius: 13px;
+}
+
+.integrity-alert-card {
+  border: 1px solid rgba(229, 95, 86, 0.47);
+  background: rgba(127, 38, 35, 0.31);
+}
+
+.integrity-alert-card svg {
+  flex: 0 0 auto;
+  color: #ff9b93;
+}
+
+.integrity-alert-card strong {
+  color: #fff0ee;
+  font-size: 14px;
+}
+
+.integrity-alert-card p {
+  margin: 6px 0 0;
+  color: #ffc7c2;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.integrity-safe-card {
+  border: 1px solid rgba(71, 191, 128, 0.35);
+  background: rgba(22, 102, 68, 0.23);
+}
+
+.integrity-safe-card svg {
+  flex: 0 0 auto;
+  color: #80e8af;
+}
+
+.integrity-safe-card strong {
+  color: #e6fff0;
+  font-size: 14px;
+}
+
+.integrity-safe-card p {
+  margin: 6px 0 0;
+  color: #a5d7bb;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+/* =========================
+   EVIDENCE MODALS
+========================= */
 
 .modal-overlay {
   position: fixed;
@@ -1069,6 +1356,10 @@ button {
   background: #0c2031;
 }
 
+.modal-close:hover {
+  color: #efffff;
+}
+
 .evidence-form {
   display: grid;
   gap: 18px;
@@ -1090,6 +1381,17 @@ button {
   background: #0b2030;
 }
 
+.evidence-form input:focus,
+.evidence-form select:focus {
+  border-color: #52c8d1;
+  box-shadow: 0 0 0 3px rgba(78, 204, 210, 0.12);
+}
+
+.evidence-form select option {
+  color: #102238;
+  background: #ffffff;
+}
+
 .hidden-file-input {
   display: none;
 }
@@ -1105,6 +1407,11 @@ button {
   border-radius: 11px;
   background: rgba(10, 54, 68, 0.32);
   text-align: center;
+}
+
+.file-drop-zone:hover {
+  border-color: #7beaf0;
+  background: rgba(16, 79, 93, 0.38);
 }
 
 .file-drop-zone strong {
@@ -1144,6 +1451,7 @@ button {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  margin-top: 5px;
 }
 
 .evidence-detail-list {
@@ -1166,6 +1474,15 @@ button {
   border-bottom: 0;
 }
 
+.mismatch-text,
+.mismatch-hash {
+  color: #ffaaa2 !important;
+}
+
+.verified-text {
+  color: #83e9b2 !important;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -1176,6 +1493,10 @@ button {
 .evidence-loading svg {
   animation: spin 1s linear infinite;
 }
+
+/* =========================
+   RESPONSIVE DESIGN
+========================= */
 
 @media (max-width: 940px) {
   .sidebar {
@@ -1240,6 +1561,16 @@ button {
     border-bottom: 0;
   }
 
+  .integrity-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
   .modal-overlay {
     padding: 14px;
   }
@@ -1254,5 +1585,29 @@ button {
 
   .modal-actions button {
     width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .auth-panel {
+    padding: 34px 24px;
+  }
+
+  .mfa-card,
+  .dashboard-placeholder section {
+    padding: 28px 22px;
+  }
+
+  .auth-heading h2 {
+    font-size: 30px;
+  }
+
+  .case-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .evidence-actions {
+    min-width: 220px;
   }
 }
