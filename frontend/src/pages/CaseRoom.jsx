@@ -14,8 +14,10 @@ import {
   CheckCircle2,
   ClipboardList,
   Eye,
+  FilePlus2,
   FileText,
   Fingerprint,
+  GitBranch,
   History,
   LoaderCircle,
   Plus,
@@ -30,8 +32,10 @@ import { auth, db } from "../firebaseConfig";
 import AppShell from "../components/AppShell";
 import {
   getAuditLogsForCase,
+  getEvidenceVersions,
   simulateEvidenceTamper,
   uploadEvidence,
+  uploadEvidenceVersion,
   verifyEvidenceIntegrity,
 } from "../services/evidenceService";
 
@@ -65,9 +69,31 @@ function getActionLabel(action) {
     UPLOAD: "Evidence uploaded",
     INTEGRITY_CHECK: "Integrity verification",
     FILE_MODIFIED_DEMO: "Demo tamper simulation",
+    VERSION_UPDATE: "Evidence version updated",
   };
 
   return labels[action] || action?.replaceAll("_", " ") || "System action";
+}
+
+function createFallbackVersion(evidence) {
+  return {
+    id: `fallback-${evidence.id}`,
+    evidenceId: evidence.id,
+    evidenceTitle: evidence.title,
+    version: 1,
+    evidenceType: evidence.evidenceType,
+    originalFileName: evidence.originalFileName,
+    fileSize: evidence.fileSize,
+    sha256Hash: evidence.sha256Hash,
+    currentSha256Hash: evidence.currentSha256Hash,
+    integrityStatus: evidence.integrityStatus,
+    uploadedBy: evidence.uploadedBy,
+    uploadedByName: evidence.uploadedByName,
+    uploadedByRole: evidence.uploadedByRole,
+    uploadedAt: evidence.uploadedAt,
+    isCurrentVersion: true,
+    isFallback: true,
+  };
 }
 
 export default function CaseRoom() {
@@ -81,30 +107,43 @@ export default function CaseRoom() {
   const [loading, setLoading] = useState(true);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [versionsLoading, setVersionsLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState("Overview");
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showVersionUploadModal, setShowVersionUploadModal] = useState(false);
+  const [showVersionsModal, setShowVersionsModal] = useState(false);
+
   const [selectedEvidence, setSelectedEvidence] = useState(null);
+  const [versionTarget, setVersionTarget] = useState(null);
+  const [versionItems, setVersionItems] = useState([]);
+
   const [uploadError, setUploadError] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+
   const [uploading, setUploading] = useState(false);
+  const [versionUploading, setVersionUploading] = useState(false);
   const [processingEvidenceId, setProcessingEvidenceId] = useState("");
 
   const [title, setTitle] = useState("");
   const [evidenceType, setEvidenceType] = useState("Image");
   const [selectedFile, setSelectedFile] = useState(null);
+  const [versionFile, setVersionFile] = useState(null);
 
   const fileInputRef = useRef(null);
+  const versionFileInputRef = useRef(null);
   const navigate = useNavigate();
 
   const canUpload = ["Investigator", "Forensic Officer"].includes(
     profile?.role
   );
 
-  const canVerify = ["Investigator", "Forensic Officer", "Administrator"].includes(
-    profile?.role
-  );
+  const canVerify = [
+    "Investigator",
+    "Forensic Officer",
+    "Administrator",
+  ].includes(profile?.role);
 
   const canSimulateTamper = ["Investigator", "Administrator"].includes(
     profile?.role
@@ -147,6 +186,7 @@ export default function CaseRoom() {
         items.sort((firstItem, secondItem) => {
           const firstTime = firstItem.uploadedAt?.toMillis?.() || 0;
           const secondTime = secondItem.uploadedAt?.toMillis?.() || 0;
+
           return secondTime - firstTime;
         });
 
@@ -233,6 +273,13 @@ export default function CaseRoom() {
     setShowUploadModal(false);
   }
 
+  function closeVersionUploadModal() {
+    setVersionFile(null);
+    setVersionTarget(null);
+    setUploadError("");
+    setShowVersionUploadModal(false);
+  }
+
   async function handleUpload(event) {
     event.preventDefault();
     setUploadError("");
@@ -260,6 +307,7 @@ export default function CaseRoom() {
       });
 
       closeUploadModal();
+
       setUploadSuccess(
         `Evidence registered. SHA-256 fingerprint: ${shortHash(
           result.sha256Hash
@@ -269,11 +317,51 @@ export default function CaseRoom() {
       await loadEvidence();
     } catch (error) {
       console.error("Evidence upload failed:", error);
+
       setUploadError(
         "Could not register evidence. Check Firestore Rules and try again."
       );
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleUploadVersion(event) {
+    event.preventDefault();
+
+    if (!versionTarget || !versionFile) {
+      setUploadError("Please select the revised evidence file.");
+      return;
+    }
+
+    setUploadError("");
+    setVersionUploading(true);
+
+    try {
+      const result = await uploadEvidenceVersion({
+        evidence: versionTarget,
+        file: versionFile,
+        profile,
+      });
+
+      closeVersionUploadModal();
+
+      setUploadSuccess(
+        `Version ${result.newVersion} registered for ${
+          versionTarget.title
+        }. New SHA-256: ${shortHash(result.sha256Hash)}`
+      );
+
+      await loadEvidence();
+      await loadAuditLogs();
+    } catch (error) {
+      console.error("Version upload failed:", error);
+
+      setUploadError(
+        "Could not register the new version. Check Firestore Rules and try again."
+      );
+    } finally {
+      setVersionUploading(false);
     }
   }
 
@@ -302,7 +390,7 @@ export default function CaseRoom() {
 
   async function handleTamperSimulation(evidence) {
     const accepted = window.confirm(
-      `Demo only: simulate tampering for "${evidence.originalFileName}"? This will change the current fingerprint and trigger an integrity mismatch.`
+      `Demo only: simulate tampering for "${evidence.originalFileName}"? This changes the current fingerprint and triggers an integrity mismatch.`
     );
 
     if (!accepted) return;
@@ -314,7 +402,7 @@ export default function CaseRoom() {
       await simulateEvidenceTamper({ evidence, profile });
 
       setActionMessage(
-        `DEMO TAMPER SIMULATION COMPLETE: The current fingerprint for ${evidence.originalFileName} was changed. Run Verify Integrity to see the mismatch.`
+        `DEMO TAMPER SIMULATION COMPLETE: The current fingerprint for ${evidence.originalFileName} was changed. Click Verify to confirm the mismatch.`
       );
 
       await loadEvidence();
@@ -325,6 +413,41 @@ export default function CaseRoom() {
     } finally {
       setProcessingEvidenceId("");
     }
+  }
+
+  async function openVersionHistory(evidence) {
+    setVersionTarget(evidence);
+    setVersionItems([]);
+    setVersionsLoading(true);
+    setShowVersionsModal(true);
+
+    try {
+      const versions = await getEvidenceVersions(evidence.id);
+
+      if (versions.length === 0) {
+        setVersionItems([createFallbackVersion(evidence)]);
+      } else {
+        setVersionItems(versions);
+      }
+    } catch (error) {
+      console.error("Could not load version history:", error);
+      setVersionItems([createFallbackVersion(evidence)]);
+    } finally {
+      setVersionsLoading(false);
+    }
+  }
+
+  function openVersionUpload(evidence) {
+    setVersionTarget(evidence);
+    setVersionFile(null);
+    setUploadError("");
+    setShowVersionUploadModal(true);
+  }
+
+  function closeVersionsModal() {
+    setShowVersionsModal(false);
+    setVersionItems([]);
+    setVersionTarget(null);
   }
 
   if (loading) {
@@ -392,9 +515,10 @@ export default function CaseRoom() {
           <div className="success-banner">
             <ShieldCheck size={20} />
             <div>
-              <strong>Evidence integrity registered</strong>
+              <strong>Evidence record registered</strong>
               <p>{uploadSuccess}</p>
             </div>
+
             <button onClick={() => setUploadSuccess("")}>
               <X size={17} />
             </button>
@@ -513,8 +637,8 @@ export default function CaseRoom() {
                 <span className="card-label">EVIDENCE REGISTER</span>
                 <h3>Case evidence</h3>
                 <p>
-                  Every item has a registered SHA-256 fingerprint, version
-                  metadata, integrity status, and audit record.
+                  Every item has a SHA-256 fingerprint, preserved version
+                  history, integrity status, and audit record.
                 </p>
               </div>
 
@@ -577,6 +701,7 @@ export default function CaseRoom() {
                               <div className="evidence-file-icon">
                                 <FileText size={18} />
                               </div>
+
                               <div>
                                 <strong>{item.title}</strong>
                                 <span>
@@ -623,6 +748,25 @@ export default function CaseRoom() {
                                 Details
                               </button>
 
+                              <button
+                                className="table-action versions"
+                                title="View version history"
+                                onClick={() => openVersionHistory(item)}
+                              >
+                                <GitBranch size={15} />
+                                Versions
+                              </button>
+
+                              {canUpload && (
+                                <button
+                                  className="table-action version-upload"
+                                  onClick={() => openVersionUpload(item)}
+                                >
+                                  <FilePlus2 size={15} />
+                                  New version
+                                </button>
+                              )}
+
                               {canVerify && (
                                 <button
                                   className="table-action verify"
@@ -630,7 +774,10 @@ export default function CaseRoom() {
                                   onClick={() => handleVerifyIntegrity(item)}
                                 >
                                   {isProcessing ? (
-                                    <LoaderCircle className="spin-icon" size={15} />
+                                    <LoaderCircle
+                                      className="spin-icon"
+                                      size={15}
+                                    />
                                   ) : (
                                     <SearchCheck size={15} />
                                   )}
@@ -641,7 +788,9 @@ export default function CaseRoom() {
                               {canSimulateTamper && (
                                 <button
                                   className="table-action tamper"
-                                  disabled={isProcessing || item.tamperSimulated}
+                                  disabled={
+                                    isProcessing || item.tamperSimulated
+                                  }
                                   onClick={() => handleTamperSimulation(item)}
                                 >
                                   <AlertTriangle size={15} />
@@ -693,8 +842,8 @@ export default function CaseRoom() {
                 <History size={35} />
                 <h3>No audit events yet</h3>
                 <p>
-                  Evidence uploads, integrity checks, and demo tamper events
-                  will be recorded here.
+                  Evidence uploads, version updates, integrity checks, and
+                  demo tamper events will appear here.
                 </p>
               </div>
             ) : (
@@ -707,6 +856,8 @@ export default function CaseRoom() {
                           ? "danger"
                           : log.action === "INTEGRITY_CHECK"
                           ? "verify"
+                          : log.action === "VERSION_UPDATE"
+                          ? "version"
                           : "upload"
                       }`}
                     >
@@ -714,6 +865,8 @@ export default function CaseRoom() {
                         <ShieldAlert size={18} />
                       ) : log.action === "INTEGRITY_CHECK" ? (
                         <SearchCheck size={18} />
+                      ) : log.action === "VERSION_UPDATE" ? (
+                        <GitBranch size={18} />
                       ) : (
                         <Upload size={18} />
                       )}
@@ -746,7 +899,7 @@ export default function CaseRoom() {
                 <span className="card-label">INTEGRITY MONITOR</span>
                 <h3>Evidence integrity report</h3>
                 <p>
-                  Compare registered evidence fingerprints with their current
+                  Compare registered evidence fingerprints with current
                   fingerprints to identify possible tampering.
                 </p>
               </div>
@@ -778,9 +931,9 @@ export default function CaseRoom() {
                 <div>
                   <strong>Integrity mismatch requires attention</strong>
                   <p>
-                    One or more evidence records have a current SHA-256 hash
-                    that differs from the original registered fingerprint.
-                    Review the Evidence tab and Audit Trail immediately.
+                    One or more evidence records have a current SHA-256
+                    fingerprint that differs from the original registered
+                    fingerprint. Review Evidence and Audit Trail immediately.
                   </p>
                 </div>
               </div>
@@ -805,7 +958,7 @@ export default function CaseRoom() {
             <h3>Case documents module</h3>
             <p>
               FIRs, forensic reports, charge sheets, and legal documents will
-              use the same SHA-256 and audit workflow in the next phase.
+              use this same secure versioning and integrity workflow.
             </p>
           </section>
         )}
@@ -882,9 +1035,9 @@ export default function CaseRoom() {
               <div className="hash-explanation">
                 <Fingerprint size={19} />
                 <p>
-                  EVIDENTRA calculates a SHA-256 fingerprint, saves evidence
-                  metadata, creates an audit record, and writes a prototype
-                  tamper-evident ledger entry.
+                  EVIDENTRA calculates SHA-256, preserves Version 1, creates
+                  audit records, and writes a prototype tamper-evident ledger
+                  entry.
                 </p>
               </div>
 
@@ -923,6 +1076,195 @@ export default function CaseRoom() {
         </div>
       )}
 
+      {showVersionUploadModal && versionTarget && (
+        <div className="modal-overlay">
+          <div className="evidence-modal">
+            <div className="modal-header">
+              <div>
+                <span className="card-label">NEW EVIDENCE VERSION</span>
+                <h3>Upload Version {(versionTarget.version || 1) + 1}</h3>
+              </div>
+
+              <button
+                className="modal-close"
+                onClick={closeVersionUploadModal}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form className="evidence-form" onSubmit={handleUploadVersion}>
+              <div className="version-target-card">
+                <span>UPDATING EVIDENCE</span>
+                <strong>{versionTarget.title}</strong>
+                <small>
+                  Current version: v{versionTarget.version || 1} ·{" "}
+                  {versionTarget.originalFileName}
+                </small>
+              </div>
+
+              <input
+                ref={versionFileInputRef}
+                type="file"
+                className="hidden-file-input"
+                onChange={(event) =>
+                  setVersionFile(event.target.files?.[0] || null)
+                }
+              />
+
+              <button
+                type="button"
+                className="file-drop-zone"
+                onClick={() => versionFileInputRef.current?.click()}
+              >
+                <FilePlus2 size={25} />
+                <strong>
+                  {versionFile
+                    ? versionFile.name
+                    : "Select revised evidence file"}
+                </strong>
+                <span>
+                  {versionFile
+                    ? `${formatFileSize(versionFile.size)} selected`
+                    : "The old version remains preserved. A new SHA-256 fingerprint will be registered."}
+                </span>
+              </button>
+
+              <div className="hash-explanation">
+                <GitBranch size={19} />
+                <p>
+                  EVIDENTRA never overwrites the prior version. This upload
+                  creates Version {(versionTarget.version || 1) + 1}, a new
+                  hash, a ledger record, and an audit event.
+                </p>
+              </div>
+
+              {uploadError && <p className="form-error">{uploadError}</p>}
+
+              <div className="modal-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={closeVersionUploadModal}
+                  disabled={versionUploading}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  className="primary-button compact-button"
+                  type="submit"
+                  disabled={versionUploading}
+                >
+                  {versionUploading ? (
+                    <>
+                      <LoaderCircle className="spin-icon" size={17} />
+                      Registering Version...
+                    </>
+                  ) : (
+                    <>
+                      <GitBranch size={17} />
+                      Create new version
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showVersionsModal && versionTarget && (
+        <div className="modal-overlay">
+          <div className="evidence-modal details-modal">
+            <div className="modal-header">
+              <div>
+                <span className="card-label">IMMUTABLE VERSION HISTORY</span>
+                <h3>{versionTarget.title}</h3>
+              </div>
+
+              <button className="modal-close" onClick={closeVersionsModal}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {versionsLoading ? (
+              <div className="modal-loading">
+                <LoaderCircle className="spin-icon" size={22} />
+                Loading preserved versions...
+              </div>
+            ) : (
+              <div className="version-history-list">
+                {versionItems.map((version) => (
+                  <article className="version-history-item" key={version.id}>
+                    <div className="version-number">
+                      <GitBranch size={17} />
+                      v{version.version}
+                    </div>
+
+                    <div className="version-history-content">
+                      <div className="version-history-top">
+                        <strong>{version.originalFileName}</strong>
+
+                        <span
+                          className={`version-current-badge ${
+                            version.isCurrentVersion ? "current" : ""
+                          }`}
+                        >
+                          {version.isCurrentVersion
+                            ? "Current version"
+                            : "Preserved"}
+                        </span>
+                      </div>
+
+                      <p>
+                        {version.evidenceType} ·{" "}
+                        {formatFileSize(version.fileSize)} ·{" "}
+                        {formatDate(version.uploadedAt)}
+                      </p>
+
+                      <code>{version.sha256Hash}</code>
+
+                      <small>
+                        Uploaded by {version.uploadedByName || version.uploadedBy}{" "}
+                        · {version.uploadedByRole}
+                      </small>
+
+                      {version.isFallback && (
+                        <em>
+                          Version 1 is displayed from the original evidence
+                          record because it was uploaded before Version History
+                          was enabled.
+                        </em>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              {canUpload && (
+                <button
+                  className="secondary-button compact-button"
+                  onClick={() => {
+                    setShowVersionsModal(false);
+                    openVersionUpload(versionTarget);
+                  }}
+                >
+                  <FilePlus2 size={16} />
+                  Upload new version
+                </button>
+              )}
+
+              <button className="primary-button" onClick={closeVersionsModal}>
+                Close history
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedEvidence && (
         <div className="modal-overlay">
           <div className="evidence-modal details-modal">
@@ -949,6 +1291,11 @@ export default function CaseRoom() {
               <div>
                 <span>EVIDENCE TYPE</span>
                 <strong>{selectedEvidence.evidenceType}</strong>
+              </div>
+
+              <div>
+                <span>CURRENT VERSION</span>
+                <strong>v{selectedEvidence.version || 1}</strong>
               </div>
 
               <div>
@@ -997,16 +1344,20 @@ export default function CaseRoom() {
                   {selectedEvidence.uploadedByRole})
                 </strong>
               </div>
-
-              <div>
-                <span>LAST VERIFIED</span>
-                <strong>
-                  {selectedEvidence.lastVerifiedBy || "Not verified yet"}
-                </strong>
-              </div>
             </div>
 
             <div className="modal-actions">
+              <button
+                className="secondary-button compact-button"
+                onClick={() => {
+                  setSelectedEvidence(null);
+                  openVersionHistory(selectedEvidence);
+                }}
+              >
+                <GitBranch size={16} />
+                Version history
+              </button>
+
               <button
                 className="primary-button"
                 onClick={() => setSelectedEvidence(null)}

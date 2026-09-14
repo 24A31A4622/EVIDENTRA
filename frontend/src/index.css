@@ -29,9 +29,7 @@ button {
   cursor: pointer;
 }
 
-/* =========================
-   SHARED COMPONENTS
-========================= */
+/* SHARED */
 
 .brand-mark {
   display: grid;
@@ -143,9 +141,7 @@ button {
   background: #10283a;
 }
 
-/* =========================
-   LOGIN PAGE
-========================= */
+/* LOGIN */
 
 .auth-page {
   display: grid;
@@ -300,9 +296,7 @@ button {
   margin: 0;
 }
 
-/* =========================
-   MFA PAGE
-========================= */
+/* MFA */
 
 .mfa-page {
   display: grid;
@@ -370,9 +364,7 @@ button {
   font-size: 12px;
 }
 
-/* =========================
-   APP SHELL
-========================= */
+/* APP SHELL */
 
 .app-shell {
   display: flex;
@@ -546,9 +538,7 @@ button {
   padding: 46px clamp(24px, 4vw, 64px);
 }
 
-/* =========================
-   DASHBOARD AND CASE ROOM
-========================= */
+/* DASHBOARD AND CASE ROOM */
 
 .dashboard-header,
 .case-header,
@@ -611,19 +601,22 @@ button {
   background: rgba(139, 39, 36, 0.35);
 }
 
-.security-banner svg {
+.security-banner svg,
+.success-banner > svg,
+.integrity-message > svg {
   flex: 0 0 auto;
+}
+
+.security-banner svg {
   color: #75ebbc;
 }
 
 .success-banner > svg,
 .integrity-message.safe > svg {
-  flex: 0 0 auto;
   color: #72e6ac;
 }
 
 .integrity-message.danger > svg {
-  flex: 0 0 auto;
   color: #ff9c94;
 }
 
@@ -656,9 +649,12 @@ button {
 .integrity-message button {
   margin-left: auto;
   padding: 0;
-  color: #a5e5c0;
   border: 0;
   background: transparent;
+}
+
+.success-banner button {
+  color: #a5e5c0;
 }
 
 .integrity-message.danger button {
@@ -982,9 +978,7 @@ button {
   line-height: 1.65;
 }
 
-/* =========================
-   EVIDENCE MODULE
-========================= */
+/* EVIDENCE */
 
 .module-header {
   margin-bottom: 25px;
@@ -996,7 +990,7 @@ button {
 
 .evidence-table {
   width: 100%;
-  min-width: 960px;
+  min-width: 1080px;
   border-collapse: collapse;
 }
 
@@ -1064,7 +1058,8 @@ button {
 }
 
 .hash-text,
-.evidence-detail-list code {
+.evidence-detail-list code,
+.version-history-content code {
   overflow-wrap: anywhere;
   color: #87e5ec;
   font-family: "DM Mono", monospace;
@@ -1075,7 +1070,7 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  min-width: 255px;
+  min-width: 420px;
 }
 
 .table-action {
@@ -1092,6 +1087,18 @@ button {
   color: #a4eaf0;
   border: 1px solid #285871;
   background: #0e2d43;
+}
+
+.table-action.versions {
+  color: #c8b6ff;
+  border: 1px solid rgba(158, 123, 232, 0.4);
+  background: rgba(88, 56, 145, 0.26);
+}
+
+.table-action.version-upload {
+  color: #a4d9ff;
+  border: 1px solid rgba(80, 147, 208, 0.4);
+  background: rgba(30, 85, 140, 0.27);
 }
 
 .table-action.verify {
@@ -1112,9 +1119,7 @@ button {
   background: rgba(92, 49, 47, 0.2);
 }
 
-/* =========================
-   AUDIT TRAIL
-========================= */
+/* AUDIT TRAIL */
 
 .audit-list {
   overflow: hidden;
@@ -1148,6 +1153,11 @@ button {
 .audit-icon.verify {
   color: #88eab6;
   background: rgba(22, 115, 72, 0.28);
+}
+
+.audit-icon.version {
+  color: #c4b2ff;
+  background: rgba(82, 52, 143, 0.31);
 }
 
 .audit-icon.danger {
@@ -1191,9 +1201,7 @@ button {
   font-size: 10px;
 }
 
-/* =========================
-   INTEGRITY REPORT
-========================= */
+/* INTEGRITY REPORT */
 
 .integrity-summary-grid {
   display: grid;
@@ -1299,9 +1307,7 @@ button {
   line-height: 1.65;
 }
 
-/* =========================
-   EVIDENCE MODALS
-========================= */
+/* MODALS */
 
 .modal-overlay {
   position: fixed;
@@ -1327,7 +1333,7 @@ button {
 }
 
 .details-modal {
-  width: min(100%, 680px);
+  width: min(100%, 710px);
 }
 
 .modal-header {
@@ -1483,6 +1489,128 @@ button {
   color: #83e9b2 !important;
 }
 
+/* VERSION HISTORY */
+
+.version-target-card {
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+  border: 1px solid rgba(96, 135, 209, 0.42);
+  border-radius: 10px;
+  background: rgba(30, 72, 128, 0.28);
+}
+
+.version-target-card span {
+  color: #91b8ef;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.version-target-card strong {
+  color: #e4f3ff;
+  font-size: 13px;
+}
+
+.version-target-card small {
+  color: #a4c1dc;
+  font-size: 10px;
+}
+
+.modal-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 190px;
+  color: #a2c9d3;
+  font-size: 12px;
+}
+
+.version-history-list {
+  display: grid;
+  gap: 13px;
+  margin-top: 22px;
+}
+
+.version-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #264f65;
+  border-radius: 11px;
+  background: #0d2435;
+}
+
+.version-number {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 8px;
+  color: #d1c4ff;
+  border: 1px solid rgba(163, 128, 239, 0.4);
+  border-radius: 7px;
+  background: rgba(85, 52, 143, 0.3);
+  font-family: "DM Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.version-history-content {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 6px;
+}
+
+.version-history-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.version-history-top strong {
+  overflow-wrap: anywhere;
+  color: #e3f7fb;
+  font-size: 12px;
+}
+
+.version-current-badge {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  color: #839fab;
+  border: 1px solid #345d70;
+  border-radius: 12px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.version-current-badge.current {
+  color: #83ebba;
+  border-color: rgba(77, 202, 132, 0.35);
+  background: rgba(23, 111, 69, 0.25);
+}
+
+.version-history-content p,
+.version-history-content small,
+.version-history-content em {
+  margin: 0;
+  color: #8eacb9;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.version-history-content small {
+  color: #7b9eac;
+}
+
+.version-history-content em {
+  color: #e1c780;
+  font-style: normal;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -1494,9 +1622,7 @@ button {
   animation: spin 1s linear infinite;
 }
 
-/* =========================
-   RESPONSIVE DESIGN
-========================= */
+/* RESPONSIVE */
 
 @media (max-width: 940px) {
   .sidebar {
@@ -1565,7 +1691,8 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .audit-title-row {
+  .audit-title-row,
+  .version-history-top {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
@@ -1608,6 +1735,10 @@ button {
   }
 
   .evidence-actions {
-    min-width: 220px;
+    min-width: 300px;
+  }
+
+  .version-history-item {
+    flex-direction: column;
   }
 }

@@ -19,14 +19,12 @@ function bytesToHex(buffer) {
 export async function calculateSha256(file) {
   const fileBuffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", fileBuffer);
-
   return bytesToHex(hashBuffer);
 }
 
 function createMockTransactionHash() {
   const firstPart = crypto.randomUUID().replaceAll("-", "");
   const secondPart = crypto.randomUUID().replaceAll("-", "");
-
   return `0x${firstPart}${secondPart}`.slice(0, 66);
 }
 
@@ -37,7 +35,6 @@ function createMockBlockNumber() {
 function createTamperedHash(originalHash) {
   const randomHash = crypto.randomUUID().replaceAll("-", "");
   const additionalPart = crypto.randomUUID().replaceAll("-", "");
-
   const differentHash = `${randomHash}${additionalPart}`.slice(0, 64);
 
   if (differentHash === originalHash) {
@@ -68,6 +65,28 @@ export async function addAuditLog({
     details,
     timestamp: serverTimestamp(),
   });
+}
+
+function getVersionRecordFromEvidence(evidence, version) {
+  return {
+    caseId: evidence.caseId,
+    evidenceId: evidence.id,
+    evidenceTitle: evidence.title,
+    version,
+    evidenceType: evidence.evidenceType,
+    originalFileName: evidence.originalFileName,
+    mimeType: evidence.mimeType,
+    fileSize: evidence.fileSize,
+    sha256Hash: evidence.sha256Hash,
+    currentSha256Hash: evidence.currentSha256Hash || evidence.sha256Hash,
+    integrityStatus: evidence.integrityStatus || "Verified",
+    uploadedBy: evidence.uploadedBy,
+    uploadedByName: evidence.uploadedByName,
+    uploadedByRole: evidence.uploadedByRole,
+    uploadedAt: evidence.uploadedAt || serverTimestamp(),
+    storageStatus: evidence.storageStatus || "Browser prototype only",
+    isCurrentVersion: true,
+  };
 }
 
 export async function uploadEvidence({
@@ -105,6 +124,14 @@ export async function uploadEvidence({
     evidenceRecord
   );
 
+  await addDoc(collection(db, "evidenceVersions"), {
+    ...evidenceRecord,
+    evidenceId: evidenceReference.id,
+    version: 1,
+    isCurrentVersion: true,
+    createdAt: serverTimestamp(),
+  });
+
   const transactionHash = createMockTransactionHash();
   const blockNumber = createMockBlockNumber();
 
@@ -112,6 +139,7 @@ export async function uploadEvidence({
     caseId,
     entityType: "Evidence",
     entityId: evidenceReference.id,
+    version: 1,
     sha256Hash,
     action: "EVIDENCE_REGISTERED",
     transactionHash,
@@ -134,6 +162,105 @@ export async function uploadEvidence({
 
   return {
     id: evidenceReference.id,
+    sha256Hash,
+    transactionHash,
+    blockNumber,
+  };
+}
+
+export async function uploadEvidenceVersion({
+  evidence,
+  file,
+  profile,
+}) {
+  const newVersion = (evidence.version || 1) + 1;
+  const sha256Hash = await calculateSha256(file);
+
+  const previousVersionsQuery = query(
+    collection(db, "evidenceVersions"),
+    where("evidenceId", "==", evidence.id)
+  );
+
+  const previousVersionsSnapshot = await getDocs(previousVersionsQuery);
+
+  await Promise.all(
+    previousVersionsSnapshot.docs.map((versionDocument) =>
+      updateDoc(doc(db, "evidenceVersions", versionDocument.id), {
+        isCurrentVersion: false,
+      })
+    )
+  );
+
+  const newVersionRecord = {
+    caseId: evidence.caseId,
+    evidenceId: evidence.id,
+    evidenceTitle: evidence.title,
+    version: newVersion,
+    evidenceType: evidence.evidenceType,
+    originalFileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    fileSize: file.size,
+    sha256Hash,
+    currentSha256Hash: sha256Hash,
+    integrityStatus: "Verified",
+    uploadedBy: profile.email,
+    uploadedByName: profile.displayName,
+    uploadedByRole: profile.role,
+    uploadedAt: serverTimestamp(),
+    storageStatus: "Browser prototype only",
+    isCurrentVersion: true,
+    createdAt: serverTimestamp(),
+  };
+
+  await addDoc(collection(db, "evidenceVersions"), newVersionRecord);
+
+  await updateDoc(doc(db, "evidence", evidence.id), {
+    originalFileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    fileSize: file.size,
+    sha256Hash,
+    currentSha256Hash: sha256Hash,
+    integrityStatus: "Verified",
+    version: newVersion,
+    uploadedBy: profile.email,
+    uploadedByName: profile.displayName,
+    uploadedByRole: profile.role,
+    uploadedAt: serverTimestamp(),
+    tamperSimulated: false,
+    lastVerifiedAt: serverTimestamp(),
+    lastVerifiedBy: profile.email,
+  });
+
+  const transactionHash = createMockTransactionHash();
+  const blockNumber = createMockBlockNumber();
+
+  await addDoc(collection(db, "blockchainRecords"), {
+    caseId: evidence.caseId,
+    entityType: "Evidence",
+    entityId: evidence.id,
+    version: newVersion,
+    sha256Hash,
+    action: "EVIDENCE_VERSION_REGISTERED",
+    transactionHash,
+    blockNumber,
+    createdBy: profile.email,
+    createdAt: serverTimestamp(),
+    ledgerType: "Prototype Permissioned Ledger",
+  });
+
+  await addAuditLog({
+    caseId: evidence.caseId,
+    userId: profile.uid,
+    userName: profile.displayName,
+    userRole: profile.role,
+    action: "VERSION_UPDATE",
+    entityType: "Evidence",
+    entityId: evidence.id,
+    details: `Uploaded version ${newVersion} for ${evidence.title}. New file: ${file.name}; new SHA-256 fingerprint registered.`,
+  });
+
+  return {
+    newVersion,
     sha256Hash,
     transactionHash,
     blockNumber,
@@ -194,6 +321,24 @@ export async function simulateEvidenceTamper({ evidence, profile }) {
   });
 
   return tamperedHash;
+}
+
+export async function getEvidenceVersions(evidenceId) {
+  const versionsQuery = query(
+    collection(db, "evidenceVersions"),
+    where("evidenceId", "==", evidenceId)
+  );
+
+  const versionsSnapshot = await getDocs(versionsQuery);
+
+  const versions = versionsSnapshot.docs.map((versionDocument) => ({
+    id: versionDocument.id,
+    ...versionDocument.data(),
+  }));
+
+  return versions.sort((firstVersion, secondVersion) => {
+    return (secondVersion.version || 0) - (firstVersion.version || 0);
+  });
 }
 
 export async function getAuditLogsForCase(caseId) {
