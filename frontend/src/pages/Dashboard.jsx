@@ -1,18 +1,28 @@
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { signOut } from "firebase/auth";
+import { doc, getDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowRight,
+  FolderKanban,
+  Plus,
+  ShieldCheck,
+} from "lucide-react";
 import { auth, db } from "../firebaseConfig";
+import AppShell from "../components/AppShell";
 
 export default function Dashboard() {
   const [profile, setProfile] = useState(null);
+  const [cases, setCases] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
   const navigate = useNavigate();
 
   useEffect(() => {
-    async function loadProfile() {
-      const mfaVerified = sessionStorage.getItem("evidentraMfaVerified");
+    async function loadDashboard() {
       const currentUser = auth.currentUser;
+      const mfaVerified = sessionStorage.getItem("evidentraMfaVerified");
 
       if (!currentUser || mfaVerified !== "true") {
         navigate("/login");
@@ -20,116 +30,146 @@ export default function Dashboard() {
       }
 
       try {
-        const profileRef = doc(db, "users", currentUser.uid);
-        const profileSnapshot = await getDoc(profileRef);
+        const profileSnapshot = await getDoc(
+          doc(db, "users", currentUser.uid)
+        );
 
         if (!profileSnapshot.exists()) {
-          setError(
-            "No EVIDENTRA role profile was found for this account. Check that the Firestore users document ID exactly matches the Firebase Authentication User UID."
-          );
+          setError("No secure user profile was found for this account.");
           return;
         }
 
-        const data = profileSnapshot.data();
+        const currentProfile = profileSnapshot.data();
 
-        if (data.active !== true) {
-          setError("This EVIDENTRA account has been deactivated.");
+        if (currentProfile.active !== true) {
+          setError("This account has been deactivated.");
           return;
         }
 
-        setProfile(data);
-      } catch (err) {
-        console.error(err);
-        setError(
-          "Could not load the secure user profile. Check Firestore Rules and confirm the user document is correctly configured."
+        setProfile(currentProfile);
+
+        const casesQuery = query(
+          collection(db, "cases"),
+          where("assignedUserIds", "array-contains", currentUser.uid)
         );
+
+        const casesSnapshot = await getDocs(casesQuery);
+
+        setCases(
+          casesSnapshot.docs.map((caseDocument) => ({
+            id: caseDocument.id,
+            ...caseDocument.data(),
+          }))
+        );
+      } catch (err) {
+        console.error("Could not load dashboard:", err);
+        setError(
+          "Could not load case data. Check your Firestore Rules and make sure this user's UID is inside assignedUserIds."
+        );
+      } finally {
+        setLoading(false);
       }
     }
 
-    loadProfile();
+    loadDashboard();
   }, [navigate]);
 
-  async function handleLogout() {
-    await signOut(auth);
-    sessionStorage.clear();
-    navigate("/login");
+  if (loading) {
+    return <main className="loading-screen">Loading secure workspace...</main>;
   }
 
-  if (error) {
+  if (error || !profile) {
     return (
       <main className="dashboard-placeholder">
         <section>
-          <div className="brand-lockup">
-            <div className="brand-mark">E</div>
-            <div>
-              <h1>EVIDENTRA</h1>
-              <p>Secure Case Workspace</p>
-            </div>
-          </div>
-
-          <h2>Profile access needs attention</h2>
+          <h2>Dashboard access needs attention</h2>
           <p>{error}</p>
-
-          <button className="primary-button" onClick={handleLogout}>
-            Secure logout
-          </button>
         </section>
       </main>
     );
   }
 
-  if (!profile) {
-    return (
-      <main className="loading-screen">
-        Loading secure user profile...
-      </main>
-    );
-  }
-
   return (
-    <main className="dashboard-placeholder">
-      <section>
-        <div className="brand-lockup">
-          <div className="brand-mark">E</div>
+    <AppShell profile={profile}>
+      <div className="page-container">
+        <header className="dashboard-header">
           <div>
-            <h1>EVIDENTRA</h1>
-            <p>Every Record. Every Action. Every Proof.</p>
-          </div>
-        </div>
-
-        <span className="eyebrow cyan">
-          SECURE WORKSPACE ACCESS VERIFIED
-        </span>
-
-        <h2>Welcome, {profile.displayName}</h2>
-
-        <p>
-          You are signed in as <strong>{profile.role}</strong>. Your role
-          determines which cases, evidence, reports, and audit actions you can
-          access.
-        </p>
-
-        <div className="profile-summary">
-          <div>
-            <span>ACCOUNT</span>
-            <strong>{profile.email}</strong>
+            <span className="eyebrow">SECURE CASE WORKSPACE</span>
+            <h2>Welcome back, {profile.displayName}</h2>
+            <p>
+              Access your assigned investigation records and evidence securely.
+            </p>
           </div>
 
-          <div>
-            <span>ROLE</span>
-            <strong>{profile.role}</strong>
-          </div>
+          {profile.role === "Investigator" && (
+            <button className="primary-button compact-button">
+              <Plus size={18} />
+              Create new case
+            </button>
+          )}
+        </header>
+
+        <section className="security-banner">
+          <ShieldCheck size={24} />
 
           <div>
-            <span>ACCESS STATUS</span>
-            <strong className="verified-text">● Active</strong>
+            <strong>Secure workspace access verified</strong>
+            <p>
+              Your session is protected by role-based access and MFA
+              verification.
+            </p>
           </div>
-        </div>
+        </section>
 
-        <button className="primary-button" onClick={handleLogout}>
-          Secure logout
-        </button>
-      </section>
-    </main>
+        <section className="dashboard-section-heading">
+          <div>
+            <span className="card-label">MY ASSIGNED CASES</span>
+            <h3>Active investigations</h3>
+          </div>
+
+          <span className="case-count">
+            {cases.length} case{cases.length !== 1 ? "s" : ""}
+          </span>
+        </section>
+
+        {cases.length === 0 ? (
+          <div className="empty-state">
+            <FolderKanban size={35} />
+            <h3>No cases assigned</h3>
+            <p>No investigation case has been assigned to this account yet.</p>
+          </div>
+        ) : (
+          <section className="case-card-grid">
+            {cases.map((item) => (
+              <article className="case-card" key={item.id}>
+                <div className="case-card-top">
+                  <div className="case-folder-icon">
+                    <FolderKanban size={21} />
+                  </div>
+
+                  <span className="status-badge open">{item.status}</span>
+                </div>
+
+                <p className="case-id-text">{item.caseId}</p>
+                <h3>{item.title}</h3>
+                <p>{item.description}</p>
+
+                <div className="case-card-footer">
+                  <span>
+                    <AlertTriangle size={15} />
+                    High priority
+                  </span>
+
+                  <button onClick={() => navigate(`/cases/${item.id}`)}>
+                    Open case room
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+      </div>
+    </AppShell>
   );
 }
